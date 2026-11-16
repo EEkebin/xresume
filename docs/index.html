@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>xresume: resume any coding-agent conversation in any CLI</title>
+<meta name="description" content="Resume a Claude Code, Codex CLI, Antigravity CLI, OpenCode or Grok CLI conversation where it lives, or move it to another CLI with its full history.">
+<style>
+  :root {
+    --bg: #f7f6f2; --panel: #ffffff; --ink: #1c1b19; --muted: #6b6860; --line: #dedbd2;
+    --term: #16171a; --term-ink: #e6e4de; --term-dim: #8a8880;
+    --claude: #c9643f; --codex: #0d8f6f; --agy: #2f6fe0; --opencode: #a8672c; --grok: #55555f; --accent: #1c1b19; --accent-ink: #ffffff;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #121315; --panel: #1a1b1f; --ink: #ecebe6; --muted: #9a978e; --line: #2c2d33;
+      --term: #0b0c0e; --claude: #d97757; --codex: #10a37f; --agy: #5b96f7; --opencode: #fab283; --grok: #b0b0bc; --accent: #ecebe6; --accent-ink: #121315;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); line-height: 1.6;
+         font: 16px/1.6 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  main { max-width: 760px; margin: 0 auto; padding: 56px 16px 72px; }
+  code, pre, .mono { font-family: ui-monospace, "Cascadia Code", "SF Mono", Menlo, Consolas, monospace; }
+  h1 { font-size: clamp(2.2rem, 7vw, 3.4rem); line-height: 1.05; margin: 0 0 14px; letter-spacing: -0.03em; }
+  h1 .x { color: var(--claude); }
+  .lede { font-size: 1.15rem; color: var(--muted); margin: 0 0 30px; max-width: 34em; text-wrap: pretty; }
+  h2 { font-size: 1.25rem; margin: 52px 0 12px; letter-spacing: -0.01em; }
+  p { margin: 0 0 14px; text-wrap: pretty; }
+  a { color: inherit; }
+  .c-claude { color: var(--claude); } .c-codex { color: var(--codex); } .c-agy { color: var(--agy); } .c-opencode { color: var(--opencode); } .c-grok { color: var(--grok); }
+
+  .install { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+  .tabs { display: flex; border-bottom: 1px solid var(--line); }
+  .tabs button { flex: 1; padding: 11px 12px; border: 0; background: transparent; color: var(--muted);
+                 font: inherit; font-weight: 600; cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px; }
+  .tabs button[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--ink); }
+  .tabs button:focus-visible, .copy:focus-visible { outline: 2px solid var(--agy); outline-offset: -2px; }
+  .cmd { display: flex; align-items: center; gap: 10px; padding: 14px; background: var(--term); }
+  .cmd pre { flex: 1; margin: 0; color: var(--term-ink); font-size: 0.92rem; overflow-x: auto; white-space: pre; padding: 4px 0; }
+  .cmd pre::before { content: attr(data-prompt) " "; color: var(--term-dim); }
+  .copy { flex: none; padding: 7px 14px; border-radius: 7px; border: 0; background: var(--term-ink); color: var(--term);
+          font: inherit; font-size: 0.88rem; font-weight: 600; cursor: pointer; min-width: 74px; }
+  .note { padding: 10px 14px; font-size: 0.9rem; color: var(--muted); margin: 0; }
+
+  .screen { background: var(--term); color: var(--term-ink); border-radius: 12px; padding: 16px; margin-top: 34px;
+            font-size: 0.82rem; line-height: 1.55; overflow-x: auto; }
+  .screen pre { margin: 0; white-space: pre; }
+  .screen .dim { color: var(--term-dim); } .screen b { font-weight: 700; }
+  .screen .t-claude { color: #d97757; } .screen .t-codex { color: #10a37f; } .screen .t-agy { color: #5b96f7; }
+
+  ul.points { list-style: none; padding: 0; margin: 0; }
+  ul.points li { padding: 12px 0; border-top: 1px solid var(--line); }
+  ul.points li:first-child { border-top: 0; }
+  ul.points strong { display: block; }
+  ul.points span { color: var(--muted); }
+  .table { overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; font-size: 0.95rem; }
+  td { padding: 8px 12px 8px 0; border-top: 1px solid var(--line); vertical-align: top; }
+  tr:first-child td { border-top: 0; }
+  td:first-child { white-space: nowrap; font-weight: 600; }
+  kbd { font: inherit; font-family: ui-monospace, Consolas, monospace; font-size: 0.85em; padding: 1px 6px;
+        border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 5px; background: var(--panel); }
+  footer { margin-top: 56px; padding-top: 18px; border-top: 1px solid var(--line); color: var(--muted); font-size: 0.92rem;
+           display: flex; gap: 18px; flex-wrap: wrap; }
+</style>
+</head>
+<body>
+<main>
+  <h1><span class="x">x</span>resume</h1>
+  <p class="lede">Resume any coding-agent conversation in the CLI it came from, or carry it into another one with its full history. Works with
+    <span class="c-claude">Claude Code</span>, <span class="c-codex">Codex CLI</span>, <span class="c-agy">Antigravity CLI</span>, <span class="c-opencode">OpenCode</span> and <span class="c-grok">Grok CLI</span>.</p>
+
+  <div class="install">
+    <div class="tabs" role="tablist" aria-label="Operating system">
+      <button role="tab" id="tab-unix" aria-controls="cmd" aria-selected="true" data-os="unix">macOS / Linux</button>
+      <button role="tab" id="tab-win" aria-controls="cmd" aria-selected="false" data-os="win">Windows</button>
+    </div>
+    <div class="cmd" id="cmd" role="tabpanel" aria-labelledby="tab-unix">
+      <pre id="line" data-prompt="$">curl -fsSL https://eekebin.github.io/xresume/install.sh | bash</pre>
+      <button class="copy" id="copy" type="button">Copy</button>
+    </div>
+    <p class="note" id="note">Paste into a terminal. Installs one file to <code>~/.local/bin</code>; nothing else is needed.</p>
+  </div>
+
+  <div class="screen" aria-label="What the xresume list looks like">
+<pre><b> xresume</b><span class="dim">  resume a conversation, in its own CLI or another</span>
+ <span class="dim">Press / to search</span>
+
+<b class="t-claude"> ❯ claude</b> <span class="dim">just now  webshop   </span> <b>Fix checkout rounding</b>  <span class="dim">│</span> <b class="t-claude">Fix checkout rounding</b>
+<b class="t-codex">   codex </b> <span class="dim">2h ago    api-server</span> Add rate limiting      <span class="dim">│</span>
+<b class="t-agy">   agy   </b> <span class="dim">1d ago    notes-app </span> Offline sync design    <span class="dim">│</span> <b>You</b>
+<b class="t-codex">   codex </b> <span class="dim">3d ago    webshop   </span> Migrate the tests      <span class="dim">│</span> totals are off by a cent on some carts
+                                                   <span class="dim">│</span>
+                                                   <span class="dim">│</span> <b class="t-claude">claude</b><span class="dim">  after 3 tool calls</span>
+                                                   <span class="dim">│</span> Found it: tax is rounded per line, then
+                                                   <span class="dim">│</span> summed. Rounding once on the total fixes…
+
+ Enter converts <b class="t-claude">claude</b> → <b class="t-codex">Codex CLI</b><span class="dim">   1/4   → open in another CLI   Space hide preview</span></pre>
+  </div>
+
+  <h2>What it does</h2>
+  <ul class="points">
+    <li><strong>One list for every conversation</strong><span>Every CLI in one place, newest first. Press / to search by title, folder or id. Enter resumes where the conversation lives.</span></li>
+    <li><strong>Move a conversation between CLIs</strong><span>Press Right, pick the CLI from the menu, press Enter. xresume writes a real session in the other CLI's own format, with messages, tool calls and tool results, and opens it with that CLI's own resume.</span></li>
+    <li><strong>Back to the list when you quit</strong><span>Leave a CLI and xresume reopens, so hopping from one CLI to another is quit, Right, pick, Enter.</span></li>
+    <li><strong>Preview before you open</strong><span>Press Space for a side panel with the last few messages of the selected conversation, so you know it is the right one.</span></li>
+    <li><strong>One session per CLI, kept in step</strong><span>Move a conversation back later and only the new turns are added to the copy already there. Each conversation shows as one row.</span></li>
+    <li><strong>Backups before any change</strong><span>Before adding to an existing session, a copy is saved in <code>~/.xresume/backups</code>.</span></li>
+  </ul>
+
+  <h2>Keys</h2>
+  <div class="table">
+  <table>
+    <tr><td><kbd>↑</kbd> <kbd>↓</kbd></td><td>Move. PgUp, PgDn, Home and End work too.</td></tr>
+    <tr><td><kbd>/</kbd></td><td>Search by title, folder, tool or id. Esc cancels the search.</td></tr>
+    <tr><td><kbd>Enter</kbd></td><td>Resume in the CLI the conversation came from.</td></tr>
+    <tr><td><kbd>→</kbd></td><td>Open in another CLI. A menu lists them with the current one first; Up and Down choose, Enter opens, Esc closes it.</td></tr>
+    <tr><td><kbd>Space</kbd></td><td>Show or hide the preview panel. <kbd>p</kbd> works too; while searching, use Ctrl+P.</td></tr>
+    <tr><td><kbd>Tab</kbd></td><td>Launch with the CLI's skip-permissions flags. The footer shows exactly which.</td></tr>
+    <tr><td><kbd>Esc</kbd></td><td>Exit. Ctrl+C twice also exits.</td></tr>
+    <tr><td>Mouse</td><td>Click selects, double-click opens, wheel scrolls.</td></tr>
+  </table>
+  </div>
+
+  <h2>Good to know</h2>
+  <p>Antigravity's conversation format is undocumented, so support follows what agy 1.5 writes and an update may break it; Grok support likewise follows Grok CLI 1.0. OpenCode cannot add turns to an existing session, so a conversation moved back into it becomes a new OpenCode session. Hidden reasoning is not carried between CLIs, Codex redraws imported messages but not imported tool calls (the model still has them), and tool outputs longer than 6,000 characters are trimmed. Tested on Windows and Linux; macOS shares the Linux code but is untested by hand. The installers fetch a standalone executable for Windows x64, Linux x64 and arm64, and Apple Silicon Macs; other systems get the Python version, which needs Python 3.8 or newer.</p>
+
+  <footer>
+    <a href="https://github.com/EEkebin/xresume">Source on GitHub</a>
+    <a href="https://github.com/EEkebin/xresume#readme">Documentation</a>
+    <a href="https://github.com/EEkebin/xresume/releases/latest">Downloads</a>
+    <span>MIT licensed</span>
+  </footer>
+</main>
+<script>
+  (function () {
+    var os = {
+      unix: { prompt: "$", line: "curl -fsSL https://eekebin.github.io/xresume/install.sh | bash",
+              note: "Paste into a terminal. Installs one file to <code>~/.local/bin</code>; nothing else is needed." },
+      win:  { prompt: "PS>", line: "irm https://eekebin.github.io/xresume/install.ps1 | iex",
+              note: "Paste into PowerShell. Installs <code>xresume.exe</code> for your user only; nothing else is needed." }
+    };
+    var tabs = [].slice.call(document.querySelectorAll('[role="tab"]'));
+    var line = document.getElementById("line"), note = document.getElementById("note"), copy = document.getElementById("copy");
+
+    function show(name) {
+      tabs.forEach(function (t) {
+        var on = t.dataset.os === name;
+        t.setAttribute("aria-selected", on);
+        t.tabIndex = on ? 0 : -1;
+        if (on) document.getElementById("cmd").setAttribute("aria-labelledby", t.id);
+      });
+      line.textContent = os[name].line;
+      line.dataset.prompt = os[name].prompt;
+      note.innerHTML = os[name].note;
+      copy.textContent = "Copy";
+    }
+    tabs.forEach(function (t, i) {
+      t.addEventListener("click", function () { show(t.dataset.os); });
+      t.addEventListener("keydown", function (e) {
+        if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+          var next = tabs[(i + 1) % tabs.length];
+          show(next.dataset.os);
+          next.focus();
+        }
+      });
+    });
+    copy.addEventListener("click", function () {
+      var text = line.textContent;
+      function done() { copy.textContent = "Copied"; setTimeout(function () { copy.textContent = "Copy"; }, 1500); }
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(done, function () {});
+      } else {
+        var r = document.createRange();
+        r.selectNodeContents(line);
+        var s = getSelection();
+        s.removeAllRanges();
+        s.addRange(r);
+        try { if (document.execCommand("copy")) done(); } catch (e) {}
+      }
+    });
+    var ua = (navigator.userAgentData && navigator.userAgentData.platform) || navigator.platform || navigator.userAgent || "";
+    show(/win/i.test(ua) ? "win" : "unix");
+  })();
+</script>
+</body>
+</html>

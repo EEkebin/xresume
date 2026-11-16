@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "xresume"
+dynamic = ["version"]
+description = "Resume a coding-agent conversation in the CLI it came from, or move it to another: Claude Code, Codex CLI, Antigravity CLI, OpenCode and Grok CLI."
+readme = "README.md"
+requires-python = ">=3.8"
+license = { text = "MIT" }
+authors = [{ name = "EEkebin" }]
+keywords = ["claude-code", "codex", "antigravity", "agy", "opencode", "grok", "resume", "session", "cli", "tui"]
+classifiers = [
+    "Environment :: Console",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+]
+
+[project.urls]
+Homepage = "https://eekebin.github.io/xresume/"
+Source = "https://github.com/EEkebin/xresume"
+
+[project.scripts]
+xresume = "xresume:main"
+
+[tool.setuptools]
+py-modules = ["xresume"]
+
+[tool.setuptools.dynamic]
+version = { attr = "xresume.__version__" }
