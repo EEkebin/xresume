@@ -2,7 +2,8 @@ name: Release
 
 # Every push to main that changes the program publishes a release once the tests pass. The version
 # is the UTC date (2026.11.19); a second release on the same day is 2026.11.19.1, and so on. The
-# version is written into xresume.py, committed to main and tagged v<version>.
+# version is written into xresume.py, committed to main and tagged v<version>. main is protected,
+# so that commit is pushed with a deploy key the ruleset lets through (secret RELEASE_DEPLOY_KEY).
 # The installers download from the latest release.
 on:
   push:
@@ -21,6 +22,8 @@ concurrency:
 jobs:
   version:
     name: Test and pick the version
+    # Not for the version commit this workflow makes itself.
+    if: ${{ !startsWith(github.event.head_commit.message, 'Release 20') }}
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.pick.outputs.version }}
@@ -92,6 +95,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          ssh-key: ${{ secrets.RELEASE_DEPLOY_KEY }}
       - uses: actions/download-artifact@v4
         with:
           path: out
@@ -101,11 +105,11 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           python .github/set_version.py "$VERSION"
-          git commit -qam "Release $VERSION" || true
+          git commit -qam "Release $VERSION [skip ci]" || true
           git tag "v$VERSION"
           git push origin "v$VERSION"
-          # Put the version on main too (pushes made with this token start no workflows). If main
-          # moved on meanwhile, add it on top of the newer commits.
+          # Put the version on main too ([skip ci] keeps this push from starting the workflows
+          # again). If main moved on meanwhile, add it on top of the newer commits.
           git push origin HEAD:main || { git fetch origin main && git rebase origin/main && git push origin HEAD:main; } \
             || echo "::warning::Could not write the version to main"
       - name: Create the release
