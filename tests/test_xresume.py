@@ -2,6 +2,7 @@
 
 Everything happens in a throwaway folder; no real Claude Code, Codex or agy data is read or written."""
 import importlib.util
+import json
 import os
 import shutil
 import sqlite3
@@ -102,6 +103,20 @@ A["codex"].append(cpath, [{"k": "user", "text": "more", "ts": ""}, {"k": "assist
 after = [xr.loads(l)["ordinal"] for l in xr.read_lines(cpath)]
 check("codex ordinals continuous", after == list(range(len(after))) and len(after) > len(before))
 check("codex list+title", A["codex"].sessions()[0].title == "Codex title")
+# a helper thread another Codex conversation spawned is not listed: Codex cannot open it on its
+# own, and it starts with a copy of its parent's history
+sub_dir = A["codex"].root / "2026" / "11" / "08"
+sub_dir.mkdir(parents=True)
+sub_id = "01a1ba89-3a49-7890-ac41-a4c436b5f1c0"
+(sub_dir / ("rollout-2026-11-08T01-41-58-%s.jsonl" % sub_id)).write_text("\n".join(json.dumps(o) for o in [
+    {"type": "session_meta", "payload": {"id": sub_id, "cwd": work, "source": {"subagent": {"thread_spawn": {"parent_thread_id": tid}}},
+                                         "thread_source": "subagent", "parent_thread_id": tid}},
+    {"type": "response_item", "payload": {"type": "message", "role": "user", "content": [{"type": "input_text", "text": "Codex title"}]}}]) + "\n")
+check("codex sub-agent threads are not listed", sub_id not in [x.id for x in A["codex"].sessions()] and tid in [x.id for x in A["codex"].sessions()])
+(sub_dir / "rollout-2026-11-08T01-41-59-01a1ba89-3a49-7890-ac41-a4c436b5f1c1.jsonl").write_text('{"type":"session_meta","payload":[1,2]}\n')
+check("an odd first line skips only that file", tid in [x.id for x in A["codex"].sessions()])
+check("is_subagent", xr.is_subagent({"thread_source": "subagent"}) and xr.is_subagent({"source": {"subagent": {}}})
+      and xr.is_subagent({"parent_thread_id": "x"}) and not xr.is_subagent({"source": "cli", "thread_source": "user", "forked_from_id": "x"}))
 check("codex round trip", xr.missing_from(ev + [{"k": "user", "text": "more"}, {"k": "assistant", "text": "sure"}],
                                            xr.join_calls(A["codex"].read(cpath), 6000)) == [])
 

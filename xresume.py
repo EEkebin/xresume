@@ -461,6 +461,15 @@ class Claude(Adapter):
         return [self.exe] + list(flags) + ["--resume", sid]
 
 
+def is_subagent(meta):
+    """Is this Codex session a helper thread another conversation spawned? Codex cannot open one
+    on its own, and it starts with a copy of its parent's history, so listing it would show a
+    duplicate of the parent that fails to open."""
+    source = meta.get("source")
+    return (meta.get("thread_source") == "subagent" or bool(meta.get("parent_thread_id"))
+            or (isinstance(source, dict) and "subagent" in source))
+
+
 class Codex(Adapter):
     name = "codex"
     label = "the Codex CLI"
@@ -498,8 +507,11 @@ class Codex(Adapter):
         cwd = None
         for i, line in enumerate(read_lines(f)):
             if i == 0:
-                c = re.search(r'"cwd":("(?:[^"\\]|\\.)*")', line)
-                cwd = loads(c.group(1)) if c else None
+                meta = get(loads(line), "payload")
+                meta = meta if isinstance(meta, dict) else {}
+                if is_subagent(meta):
+                    return None
+                cwd = meta.get("cwd") if isinstance(meta.get("cwd"), str) else None
                 continue
             if title or i > 80:
                 break
