@@ -16,9 +16,9 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # The oldest Python xresume supports; newer Ubuntu runners no longer offer it.
+          # Older Pythons: newer Ubuntu runners no longer offer them.
           - { os: ubuntu-22.04, python: "3.8" }
-          - { os: ubuntu-latest, python: "3.9" }
+          - { os: ubuntu-22.04, python: "3.9" }
           - { os: ubuntu-latest, python: "3.x" }
           - { os: windows-latest, python: "3.x" }
           - { os: macos-latest, python: "3.x" }
