@@ -91,11 +91,16 @@ function Install-XResume {
 
     if ($env:XRESUME_NO_PATH -eq '1') { return }
     # Read the PATH exactly as stored (entries like %USERPROFILE%\bin stay unexpanded) and only add to it.
-    $key = Get-Item -LiteralPath 'HKCU:\Environment'
+    $key = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey('Environment', $true)
     $userPath = "$($key.GetValue('Path', '', 'DoNotExpandEnvironmentNames'))"
     $have = @($userPath -split ';' | Where-Object { $_ } | ForEach-Object { [Environment]::ExpandEnvironmentVariables($_).TrimEnd('\') })
     if ($have -notcontains $bin.TrimEnd('\')) {
-        [Environment]::SetEnvironmentVariable('Path', ((@($bin) + @($userPath -split ';' | Where-Object { $_ })) -join ';'), 'User')
+        # Stored as an expandable string, as Windows stores it, so %...% entries keep working
+        # ([Environment]::SetEnvironmentVariable would store a plain string and break them).
+        $key.SetValue('Path', ((@($bin) + @($userPath -split ';' | Where-Object { $_ })) -join ';'), 'ExpandString')
+        # Setting and clearing a variable this way tells open programs the environment changed.
+        [Environment]::SetEnvironmentVariable('XRESUME_PATH_CHANGED', '1', 'User')
+        [Environment]::SetEnvironmentVariable('XRESUME_PATH_CHANGED', $null, 'User')
         Write-Host "Added $bin to your PATH. Open a new terminal, then run: xresume"
     } else {
         Write-Host 'Run: xresume'
