@@ -39,6 +39,7 @@ import json
 import os
 import re
 import shutil
+import struct
 import subprocess
 import sys
 import time
@@ -48,6 +49,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 # The release date in UTC, as YEAR.MONTH.DAY; a second release on the same day adds .1, and so on.
+# The release workflow sets it when it publishes; there is no need to change it by hand.
 __version__ = "2026.11.16"
 
 HOME = Path.home()
@@ -167,12 +169,67 @@ def backup(path, copy=shutil.copy2, name=None):
     d, p = STATE_DIR / "backups", Path(path)
     stem = name or p.stem
     d.mkdir(parents=True, exist_ok=True)
-    copy(str(p), str(d / ("%s.%s%s" % (stem, datetime.now().strftime("%Y%m%d-%H%M%S"), p.suffix))))
-    for old in sorted(d.glob(stem + ".*" + p.suffix))[:-5]:
+    # Named by UTC time down to the microsecond, so a second backup in the same second cannot
+    # overwrite the first and a clock change cannot reorder them.
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+    copy(str(p), str(d / ("%s.%s%s" % (stem, stamp, p.suffix))))
+    # Backups named by an earlier version (local time, 20261116-120000) are all older than these.
+    for old in sorted(d.glob(stem + ".*" + p.suffix), key=lambda f: (f.name[len(stem) + 9:len(stem) + 10] == "T", f.name))[:-5]:
         try:
             old.unlink()
         except OSError:
             pass
+
+
+def long_path(p):
+    """The path as an absolute one that, on Windows, is not held to the 260-character limit
+    (deep project folders give long session paths, and not every PC lifts that limit)."""
+    s = os.path.abspath(str(p))
+    if os.name != "nt" or s.startswith("\\\\?\\"):
+        return Path(s)
+    return Path("\\\\?\\UNC\\" + s[2:] if s.startswith("\\\\") else "\\\\?\\" + s)
+
+
+_B3_IV = (0x6A09E667, 0xBB67AE85, 0x3C6EF372, 0xA54FF53A, 0x510E527F, 0x9B05688C, 0x1F83D9AB, 0x5BE0CD19)
+_B3_PERM = (2, 6, 3, 10, 7, 0, 4, 13, 1, 11, 12, 5, 9, 14, 15, 8)
+
+
+def _b3_compress(cv, block, length, counter, flags):
+    m = list(struct.unpack("<16I", block.ljust(64, b"\0")))
+    s = list(cv) + list(_B3_IV[:4]) + [counter & 0xFFFFFFFF, counter >> 32, length, flags]
+
+    def g(a, b, c, d, x, y):
+        s[a] = (s[a] + s[b] + x) & 0xFFFFFFFF; s[d] = ((s[d] ^ s[a]) >> 16 | (s[d] ^ s[a]) << 16) & 0xFFFFFFFF
+        s[c] = (s[c] + s[d]) & 0xFFFFFFFF; s[b] = ((s[b] ^ s[c]) >> 12 | (s[b] ^ s[c]) << 20) & 0xFFFFFFFF
+        s[a] = (s[a] + s[b] + y) & 0xFFFFFFFF; s[d] = ((s[d] ^ s[a]) >> 8 | (s[d] ^ s[a]) << 24) & 0xFFFFFFFF
+        s[c] = (s[c] + s[d]) & 0xFFFFFFFF; s[b] = ((s[b] ^ s[c]) >> 7 | (s[b] ^ s[c]) << 25) & 0xFFFFFFFF
+    for r in range(7):
+        g(0, 4, 8, 12, m[0], m[1]); g(1, 5, 9, 13, m[2], m[3]); g(2, 6, 10, 14, m[4], m[5]); g(3, 7, 11, 15, m[6], m[7])
+        g(0, 5, 10, 15, m[8], m[9]); g(1, 6, 11, 12, m[10], m[11]); g(2, 7, 8, 13, m[12], m[13]); g(3, 4, 9, 14, m[14], m[15])
+        m = [m[i] for i in _B3_PERM]
+    return [s[i] ^ s[i + 8] for i in range(8)]
+
+
+def blake3_hex(data):
+    """BLAKE3 of `data`, as 64 hex digits (Grok names some folders with it; Python has no BLAKE3)."""
+    def chunk(start, counter):
+        # A 1 KB chunk run up to its last block; returns what the last compression takes.
+        part = data[start:start + 1024]
+        blocks = [part[i:i + 64] for i in range(0, len(part), 64)] or [b""]
+        cv = _B3_IV
+        for i, b in enumerate(blocks[:-1]):
+            cv = _b3_compress(cv, b, 64, counter, 1 if i == 0 else 0)
+        return cv, blocks[-1], len(blocks[-1]), counter, (1 if len(blocks) == 1 else 0) | 2
+
+    def node(start, n):
+        if n == 1:
+            return chunk(start * 1024, start)
+        left = 1 << ((n - 1).bit_length() - 1)              # the largest power of two below n
+        cvs = [_b3_compress(*node(start + k, size)) for k, size in ((0, left), (left, n - left))]
+        return _B3_IV, struct.pack("<16I", *(cvs[0] + cvs[1])), 64, 0, 4
+
+    cv, block, length, counter, flags = node(0, max(1, -(-len(data) // 1024)))
+    return struct.pack("<8I", *_b3_compress(cv, block, length, counter, flags | 8)).hex()
 
 
 def write_file(path, text):
@@ -231,7 +288,7 @@ def child_env():
 def cli_version(exe, default):
     try:
         out = subprocess.run([shutil.which(exe) or exe, "--version"], capture_output=True, text=True, timeout=20,
-                             stdin=subprocess.DEVNULL, env=child_env()).stdout
+                             encoding="utf-8", errors="replace", stdin=subprocess.DEVNULL, env=child_env()).stdout
         m = re.search(r"\d+\.\d+\.\d+", out)
         return m.group(0) if m else default
     except Exception:
@@ -285,6 +342,29 @@ class Adapter:
         return os.path.isfile(str(path))
 
 
+def claude_project_dir(cwd):
+    """The folder name Claude Code keeps a project's sessions under, made the way Claude Code
+    makes it: every character other than an ASCII letter or digit becomes "-" (one per UTF-16
+    unit, so an emoji becomes "--"), and a name over 200 characters is cut and given a hash of
+    the full path."""
+    units = cwd.encode("utf-16-le")
+    codes = [units[i] | units[i + 1] << 8 for i in range(0, len(units), 2)]
+    name = "".join(chr(c) if c < 128 and chr(c).isalnum() else "-" for c in codes)
+    if len(name) <= 200:
+        return name
+    h = 0
+    for c in codes:
+        h = (h * 31 + c) & 0xFFFFFFFF
+    h = abs(h - (1 << 32) if h >> 31 else h)
+    digits = ""
+    while True:
+        h, r = divmod(h, 36)
+        digits = "0123456789abcdefghijklmnopqrstuvwxyz"[r] + digits
+        if not h:
+            break
+    return name[:200] + "-" + digits
+
+
 class Claude(Adapter):
     name = "claude"
     label = "Claude Code"
@@ -292,7 +372,7 @@ class Claude(Adapter):
 
     def __init__(self):
         base = os.environ.get("CLAUDE_CONFIG_DIR")
-        self.root = (Path(base) if base else HOME / ".claude") / "projects"
+        self.root = long_path((Path(base) if base else HOME / ".claude") / "projects")
 
     def sessions(self):
         out = []
@@ -423,7 +503,7 @@ class Claude(Adapter):
     def write(self, ev, cwd, title, src_label):
         """Create a new session holding these events."""
         sid = str(uuid.uuid4())
-        d = self.root / re.sub(r"[^a-zA-Z0-9]", "-", cwd)
+        d = self.root / claude_project_dir(cwd)
         d.mkdir(parents=True, exist_ok=True)
         first = {"k": "user", "text": note(src_label), "ts": (ev[0].get("ts") if ev else "") or iso_now()}
         lines = self._emit([first] + ev, sid, cwd, None)
@@ -461,6 +541,28 @@ class Claude(Adapter):
         return [self.exe] + list(flags) + ["--resume", sid]
 
 
+def is_subagent(meta):
+    """Is this Codex session a helper thread another conversation spawned? Codex cannot open one
+    on its own, and it starts with a copy of its parent's history, so listing it would show a
+    duplicate of the parent that fails to open. Every kind of helper counts (spawned agents,
+    reviews, compaction): Codex's own resume list hides them all too."""
+    source = meta.get("source")
+    return (meta.get("thread_source") == "subagent" or bool(meta.get("parent_thread_id"))
+            or (isinstance(source, dict) and "subagent" in source))
+
+
+def codex_meta(line):
+    """From a rollout's first line: (its folder, whether it is a sub-agent). The line can be tens
+    of KB of instructions, so it is only parsed in full when it mentions a sub-agent at all."""
+    if '"subagent"' in line or re.search(r'"parent_thread_id":\s*"', line):
+        meta = get(loads(line), "payload")
+        if isinstance(meta, dict) and is_subagent(meta):
+            return None, True
+    c = re.search(r'"cwd":\s*("(?:[^"\\]|\\.)*")', line)
+    cwd = loads(c.group(1)) if c else None
+    return (cwd if isinstance(cwd, str) else None), False
+
+
 class Codex(Adapter):
     name = "codex"
     label = "the Codex CLI"
@@ -473,6 +575,17 @@ class Codex(Adapter):
 
     def _files(self):
         return self.root.rglob("rollout-*.jsonl") if self.root.is_dir() else []
+
+    def exists(self, path, sid):
+        # A sub-agent linked before xresume skipped them cannot be resumed, so it is not a usable copy.
+        if not os.path.isfile(str(path)):
+            return False
+        try:
+            with open(str(path), "r", encoding="utf-8", errors="replace") as f:
+                first = f.readline()
+        except OSError:
+            return False
+        return not codex_meta(first)[1]
 
     def sessions(self):
         names = {}
@@ -498,8 +611,9 @@ class Codex(Adapter):
         cwd = None
         for i, line in enumerate(read_lines(f)):
             if i == 0:
-                c = re.search(r'"cwd":("(?:[^"\\]|\\.)*")', line)
-                cwd = loads(c.group(1)) if c else None
+                cwd, sub = codex_meta(line)
+                if sub:
+                    return None
                 continue
             if title or i > 80:
                 break
@@ -805,7 +919,8 @@ class Agy(Adapter):
 
     @staticmethod
     def _uri(path):
-        return "file:///" + str(path).replace("\\", "/").lstrip("/")
+        from urllib.parse import quote
+        return "file:///" + quote(str(path).replace("\\", "/").lstrip("/"), safe="/:")
 
     @staticmethod
     def _from_uri(uri):
@@ -1135,6 +1250,23 @@ class OpenCode(Adapter):
         return [self.exe] + list(flags) + ["--session", sid]
 
 
+def quote_all(text):
+    from urllib.parse import quote
+    return quote(text, safe="")
+
+
+def grok_group(cwd):
+    """The folder Grok keeps a working folder's sessions in: the folder's path URL-encoded, or,
+    when that is over 255 bytes, a short name from the folder's own name and a hash of the path
+    (Grok then records the path in a .cwd file there)."""
+    enc = quote_all(cwd)
+    if len(enc.encode("utf-8")) <= 255:
+        return enc
+    base = os.path.basename(cwd.rstrip("\\/")) or cwd
+    slug = re.sub(r"[^a-z0-9]+", "-", "".join(chr(ord(c) + 32) if "A" <= c <= "Z" else c for c in base)).strip("-")[:40]
+    return "%s-%s" % (slug or "workspace", blake3_hex(cwd.encode("utf-8"))[:16])
+
+
 class Grok(Adapter):
     """Grok CLI. Each conversation is a folder, ~/.grok/sessions/<encoded folder>/<id>/, holding
     summary.json (title, times), chat_history.jsonl (what the model is sent) and updates.jsonl
@@ -1145,7 +1277,7 @@ class Grok(Adapter):
     free_flags = ["--always-approve"]
 
     def __init__(self):
-        self.root = Path(os.environ.get("GROK_HOME") or HOME / ".grok") / "sessions"
+        self.root = long_path(Path(os.environ.get("GROK_HOME") or HOME / ".grok") / "sessions")
 
     def exists(self, path, sid):
         return os.path.isfile(os.path.join(str(path), "chat_history.jsonl"))
@@ -1263,13 +1395,14 @@ class Grok(Adapter):
 
     def write(self, ev, cwd, title, src_label):
         """Create a new session folder holding these events."""
-        from urllib.parse import quote
-        group = quote(cwd, safe="")
-        if len(group.encode("utf-8")) > 255:
-            raise RuntimeError("That folder's path is too long for Grok's session store.")
+        group = self.root / grok_group(cwd)
+        if not group.is_dir():
+            group.mkdir(parents=True)
+            if group.name != quote_all(cwd):
+                (group / ".cwd").write_bytes(cwd.encode("utf-8"))
         sid = uuid7()
-        d = self.root / group / sid
-        d.mkdir(parents=True)
+        d = group / sid
+        d.mkdir()
         first = {"k": "user", "text": note(src_label), "ts": (ev[0].get("ts") if ev else "") or iso_now()}
         chat, upd = self._records([first] + ev, sid, 0)
         now = self._stamp()
@@ -1452,9 +1585,62 @@ def folder(s):
     return os.path.basename(s.cwd.rstrip("\\/")) or s.cwd
 
 
+# Characters of "ambiguous" width (box lines, arrows, the ellipsis, Greek, Cyrillic) take two
+# columns in many East Asian terminals. When this terminal is one of them, the lines and arrows
+# xresume draws become plain ASCII and other such characters count as two columns.
+AMBIGUOUS_WIDE = None
+NARROW = {ord(a): b for a, b in zip("─│┌┐└┘→↑↓…", "-|++++>^v~")}
+
+
 def char_width(ch):
-    """Terminal columns a character takes: wide characters (CJK, emoji) take two."""
-    return 0 if unicodedata.combining(ch) else 2 if unicodedata.east_asian_width(ch) in "WF" else 1
+    """Terminal columns a character takes: wide characters (CJK, emoji) take two, and marks that
+    sit on the character before them (accents, Thai and Indic vowel signs) take none."""
+    if unicodedata.combining(ch) or unicodedata.category(ch) in ("Mn", "Me") or "\u1160" <= ch <= "\u11ff":
+        return 0
+    eaw = unicodedata.east_asian_width(ch)
+    return 2 if eaw in "WF" or (eaw == "A" and AMBIGUOUS_WIDE and ord(ch) not in NARROW) else 1
+
+
+def measure_ambiguous(con):
+    """Does this terminal draw ambiguous-width characters two columns wide? Draws one and asks
+    where the cursor ended up. Anything unexpected counts as no."""
+    out = sys.stdout
+    try:
+        out.write("\r\u2500")
+        if con:
+            import ctypes
+            from ctypes import wintypes as wt
+
+            class INFO(ctypes.Structure):
+                _fields_ = [("size", wt._COORD), ("cursor", wt._COORD), ("attr", wt.WORD),
+                            ("window", wt.SMALL_RECT), ("max", wt._COORD)]
+            out.flush()
+            info = INFO()
+            k = ctypes.windll.kernel32
+            k.GetStdHandle.restype = wt.HANDLE
+            return bool(k.GetConsoleScreenBufferInfo(k.GetStdHandle(-11), ctypes.byref(info))) and info.cursor.X == 2
+        if os.name == "nt":
+            return False
+        import select
+        fd = sys.stdin.fileno()
+        out.write("\x1b[6n")                            # the terminal answers ESC [ row ; column R
+        out.flush()
+        reply, end = b"", time.time() + 0.5
+        while not reply.endswith(b"R") and len(reply) < 32:
+            wait = end - time.time()
+            if wait <= 0 or not select.select([fd], [], [], wait)[0]:
+                break
+            reply += os.read(fd, 1)
+        m = re.search(rb"\x1b\[\d+;(\d+)R", reply)
+        return bool(m) and int(m.group(1)) == 3
+    except Exception:
+        return False
+    finally:
+        try:
+            out.write("\r   \r")
+            out.flush()
+        except Exception:
+            pass
 
 
 def fit(s, cols, pad=False):
@@ -1719,9 +1905,15 @@ def targets_for(s):
     return [ADAPTERS[s.tool]] + [a for a in ADAPTERS.values() if a.name != s.tool and installed(a)]
 
 
+def fold(text):
+    """Text for comparing in search: same case (ß matches ss) and same accent encoding (a folder
+    name macOS stored as e + accent matches a typed é)."""
+    return unicodedata.normalize("NFC", text).casefold()
+
+
 def matches(sessions, query):
-    words = query.lower().split()
-    return [s for s in sessions if all(w in ("%s %s %s %s" % (s.tool, s.title, s.cwd, s.id)).lower() for w in words)]
+    words = fold(query).split()
+    return [s for s in sessions if all(w in fold("%s %s %s %s" % (s.tool, s.title, s.cwd, s.id)) for w in words)]
 
 
 HEADER = 3   # screen lines above the first row
@@ -1839,6 +2031,9 @@ def picker(sessions, ui=None):
         raw = termios.tcgetattr(sys.stdin.fileno())
         raw[3] &= ~termios.ISIG          # deliver Ctrl+C as a key instead of an interrupt
         termios.tcsetattr(sys.stdin.fileno(), termios.TCSADRAIN, raw)
+    global AMBIGUOUS_WIDE
+    if AMBIGUOUS_WIDE is None:
+        AMBIGUOUS_WIDE = measure_ambiguous(con)
     getc, more = char_source()
     next_key = con.read if con else (lambda: read_key(getc, more))
     old_winch = wake = None
@@ -1888,7 +2083,8 @@ def picker(sessions, ui=None):
                 menu = None
             pw = panel_width(size.columns) if preview else 0
             ends = (load_preview(rows[sel], previews) if rows else []) if pw else None
-            w(render(rows, sel, top, query, opts, size.columns, size.lines, hover, msg, mouse, free, ends, searching, menu))
+            frame = render(rows, sel, top, query, opts, size.columns, size.lines, hover, msg, mouse, free, ends, searching, menu)
+            w(frame.translate(NARROW) if AMBIGUOUS_WIDE else frame)
             sys.stdout.flush()
             msg = ""
             try:
