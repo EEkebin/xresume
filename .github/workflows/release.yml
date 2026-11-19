@@ -1,18 +1,51 @@
 name: Release
 
-# Versions are dates: set __version__ in xresume.py (the UTC date, for example 2026.11.16), then push the tag
-# v2026.11.16 to build the standalone executables and publish them as a release.
+# Every push to main that changes the program publishes a release once the tests pass. The version
+# is the UTC date (2026.11.19); a second release on the same day is 2026.11.19.1, and so on. The
+# version is written into xresume.py, committed to main and tagged v<version>.
 # The installers download from the latest release.
 on:
   push:
-    tags: ["v*"]
+    branches: [main]
+    paths: ["xresume.py", "pyproject.toml"]
+  workflow_dispatch:
 
 permissions:
   contents: write
 
+# One release at a time, in push order.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
 jobs:
+  version:
+    name: Test and pick the version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.pick.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+      - name: Run the tests
+        run: python tests/test_xresume.py
+      - name: Pick the version
+        id: pick
+        run: |
+          day="$(date -u +%Y.%-m.%-d)"
+          # Releases already made today: v<day>, v<day>.1, ...
+          taken="$(git tag -l "v$day" "v$day.*" | grep -cE "^v${day//./\\.}(\\.[0-9]+)?$" || true)"
+          version="$day"; [ "$taken" -gt 0 ] && version="$day.$taken"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "Version: $version"
+
   build:
     name: Build ${{ matrix.asset }}
+    needs: version
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -28,20 +61,17 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.x"
-      - name: Check the tag matches the version in xresume.py
+      - name: Write the version into xresume.py
         shell: bash
-        run: |
-          version="$(python -c 'import re; print(re.search(r"__version__ = \"(.+?)\"", open("xresume.py", encoding="utf-8").read()).group(1))')"
-          test "v$version" = "$GITHUB_REF_NAME" || { echo "Tag $GITHUB_REF_NAME does not match version $version"; exit 1; }
-      - name: Run the tests
-        run: python tests/test_xresume.py
+        run: python .github/set_version.py "${{ needs.version.outputs.version }}"
       - name: Build
         shell: bash
         run: |
           python -m pip install --quiet pyinstaller
           python -m PyInstaller --onefile --console --name xresume --clean --noconfirm xresume.py
           built="dist/xresume"; [ -f "$built.exe" ] && built="$built.exe"
-          "$built" --help
+          "$built" --help | tr -d '\r' | tail -1
+          "$built" --help | tr -d '\r' | grep -qx "xresume ${{ needs.version.outputs.version }}"
           mkdir out && cp "$built" "out/${{ matrix.asset }}"
       - uses: actions/upload-artifact@v4
         with:
@@ -51,18 +81,35 @@ jobs:
 
   release:
     name: Publish the release
-    needs: build
+    needs: [version, build]
     # Publish whatever built, so one platform failing does not block the others.
-    if: ${{ !cancelled() }}
+    if: ${{ !cancelled() && needs.version.result == 'success' }}
     runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+      GH_TOKEN: ${{ github.token }}
     steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/download-artifact@v4
         with:
           path: out
           merge-multiple: true
+      - name: Commit and tag the version
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          python .github/set_version.py "$VERSION"
+          git commit -qam "Release $VERSION" || true
+          git tag "v$VERSION"
+          git push origin "v$VERSION"
+          # Put the version on main too (pushes made with this token start no workflows). If main
+          # moved on meanwhile, add it on top of the newer commits.
+          git push origin HEAD:main || { git fetch origin main && git rebase origin/main && git push origin HEAD:main; } \
+            || echo "::warning::Could not write the version to main"
       - name: Create the release
-        env:
-          GH_TOKEN: ${{ github.token }}
         run: |
           ls -la out
-          gh release create "$GITHUB_REF_NAME" out/* --repo "$GITHUB_REPOSITORY" --title "xresume $GITHUB_REF_NAME" --generate-notes
+          test -n "$(ls out)" || { echo "Nothing was built"; exit 1; }
+          gh release create "v$VERSION" out/* --repo "$GITHUB_REPOSITORY" --title "$VERSION" --generate-notes --verify-tag
