@@ -464,10 +464,23 @@ class Claude(Adapter):
 def is_subagent(meta):
     """Is this Codex session a helper thread another conversation spawned? Codex cannot open one
     on its own, and it starts with a copy of its parent's history, so listing it would show a
-    duplicate of the parent that fails to open."""
+    duplicate of the parent that fails to open. Every kind of helper counts (spawned agents,
+    reviews, compaction): Codex's own resume list hides them all too."""
     source = meta.get("source")
     return (meta.get("thread_source") == "subagent" or bool(meta.get("parent_thread_id"))
             or (isinstance(source, dict) and "subagent" in source))
+
+
+def codex_meta(line):
+    """From a rollout's first line: (its folder, whether it is a sub-agent). The line can be tens
+    of KB of instructions, so it is only parsed in full when it mentions a sub-agent at all."""
+    if '"subagent"' in line or re.search(r'"parent_thread_id":\s*"', line):
+        meta = get(loads(line), "payload")
+        if isinstance(meta, dict) and is_subagent(meta):
+            return None, True
+    c = re.search(r'"cwd":\s*("(?:[^"\\]|\\.)*")', line)
+    cwd = loads(c.group(1)) if c else None
+    return (cwd if isinstance(cwd, str) else None), False
 
 
 class Codex(Adapter):
@@ -482,6 +495,17 @@ class Codex(Adapter):
 
     def _files(self):
         return self.root.rglob("rollout-*.jsonl") if self.root.is_dir() else []
+
+    def exists(self, path, sid):
+        # A sub-agent linked before xresume skipped them cannot be resumed, so it is not a usable copy.
+        if not os.path.isfile(str(path)):
+            return False
+        try:
+            with open(str(path), "r", encoding="utf-8", errors="replace") as f:
+                first = f.readline()
+        except OSError:
+            return False
+        return not codex_meta(first)[1]
 
     def sessions(self):
         names = {}
@@ -507,11 +531,9 @@ class Codex(Adapter):
         cwd = None
         for i, line in enumerate(read_lines(f)):
             if i == 0:
-                meta = get(loads(line), "payload")
-                meta = meta if isinstance(meta, dict) else {}
-                if is_subagent(meta):
+                cwd, sub = codex_meta(line)
+                if sub:
                     return None
-                cwd = meta.get("cwd") if isinstance(meta.get("cwd"), str) else None
                 continue
             if title or i > 80:
                 break
