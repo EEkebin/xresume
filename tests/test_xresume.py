@@ -333,6 +333,39 @@ check("backups in the same second are all kept, older names pruned first",
       len(kept) == 5 and sum("T" in b for b in kept) == 4
       and sorted(open(os.path.join(bdir, b)).read() for b in kept if "T" in b) == ["version %d\n" % n for n in range(4)], kept)
 
+# BLAKE3 (Grok names long folders with it), checked against the official test vectors: input
+# bytes 0, 1, 2 ... 250, 0, 1 ... of the given lengths, which cover one and several 1 KB chunks
+b3_input = lambda n: bytes(i % 251 for i in range(n))
+check("blake3", xr.blake3_hex(b"") == "af1349b9f5f9a1a6a0404dea36dcc9499bcb25c9adc112b7cc9a93cae41f3262"
+      and [xr.blake3_hex(b3_input(n))[:16] for n in (1, 1024, 1025, 2048)]
+      == ["2d3adedff11b61f1", "42214739f095a406", "d00278ae47eb27b3", "e776b6028c7cd22a"])
+# Grok's folder names, as Grok itself made them for these paths (on Windows; elsewhere "\" is
+# part of a name, so the same rule is checked on a path of that system)
+long_posix = "/home/u/" + "e" * 130 + "/" + "f" * 130 + "/Proj Jos\u00e9 x"
+check("grok folder names", xr.grok_group("/home/u/My Proj") == "%2Fhome%2Fu%2FMy%20Proj"
+      and xr.grok_group(long_posix) == "proj-jos-x-" + xr.blake3_hex(long_posix.encode("utf-8"))[:16]) if os.name != "nt" else \
+check("grok folder names", xr.grok_group("C:\\Users\\kebin\\Desktop") == "C%3A%5CUsers%5Ckebin%5CDesktop"
+      and xr.grok_group("C:\\Users\\kebin\\AppData\\Local\\Temp\\xr-grok-long\\" + "e" * 95 + "\\" + "f" * 95 + "\\Proj Jos\u00e9 x")
+      == "proj-jos-x-0f6d7ba75c7fa5d7"
+      and xr.grok_group("C:\\Users\\kebin\\AppData\\Local\\Temp\\xr-grok-long\\" + "e" * 95 + "\\" + "f" * 95 + "\\\u65e5\u672c")
+      == "workspace-efa1f4eb77b15cd1"
+      and xr.grok_group("C:\\Users\\kebin\\AppData\\Local\\Temp\\xr-grok-long\\" + "e" * 95 + "\\" + "Abc-" * 25 + "Z")
+      == "abc-abc-abc-abc-abc-abc-abc-abc-abc-abc--f38d80b31b34ec50")
+long_cwd = os.path.join(work, "x" * 120, "y" * 120, "deep")
+lsid, lpath = Gk.write([{"k": "user", "text": "hi", "ts": ""}, {"k": "assistant", "text": "hello", "ts": ""}], long_cwd, "Long", "Claude Code")
+cwd_file = os.path.join(os.path.dirname(str(lpath)), ".cwd")
+check("grok long folder: hashed name and .cwd file", os.path.basename(os.path.dirname(str(lpath))).startswith("deep-")
+      and open(cwd_file, encoding="utf-8").read() == long_cwd and lsid in [x.id for x in Gk.sessions()])
+check("long_path", (str(xr.long_path("C:\\a")) == "\\\\?\\C:\\a" and str(xr.long_path("\\\\srv\\share\\a")) == "\\\\?\\UNC\\srv\\share\\a")
+      if os.name == "nt" else str(xr.long_path("/a/b")) == "/a/b")
+# terminals that draw ambiguous-width characters two columns wide get ASCII lines instead
+xr.AMBIGUOUS_WIDE = True
+frame = xr.render(xr.all_sessions()[:3], 0, 0, "", [], 80, 12, None, "", False, False, None, False, None).translate(xr.NARROW)
+check("ambiguous-wide terminals: no box lines left, Cyrillic counts as two",
+      not any(ord(c) in xr.NARROW for c in frame) and xr.char_width("\u0430") == 2 and xr.char_width("\u2500") == 1)
+xr.AMBIGUOUS_WIDE = None
+check("other terminals: Cyrillic counts as one", xr.char_width("\u0430") == 1)
+
 print("RESULT: %d/%d" % (sum(ok), len(ok)))
 shutil.rmtree(work, ignore_errors=True)
 sys.exit(0 if all(ok) else 1)
