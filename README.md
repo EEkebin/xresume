@@ -138,10 +138,21 @@ pick a row ─▶ Enter              ─▶ the CLI's own resume, in the convers
 
 ## Uninstall
 
-- **macOS and Linux:** `rm ~/.local/bin/xresume`
-- **Windows:** delete `%LOCALAPPDATA%\xresume` and remove its `bin` folder from your user PATH.
+macOS and Linux:
 
-Links and backups live in `~/.xresume`. Sessions xresume created stay in each CLI's own history.
+```sh
+rm -rf ~/.local/bin/xresume ~/.xresume
+```
+
+Windows (PowerShell):
+
+```powershell
+irm https://eekebin.github.io/xresume/uninstall.ps1 | iex
+```
+
+These remove xresume and `~/.xresume`, where it keeps its links and backups. Sessions xresume
+created stay in each CLI's own history. Installed with pipx or uv instead? Run
+`pipx uninstall xresume` or `uv tool uninstall xresume`.
 
 ## Versions
 
