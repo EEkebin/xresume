@@ -167,8 +167,12 @@ def backup(path, copy=shutil.copy2, name=None):
     d, p = STATE_DIR / "backups", Path(path)
     stem = name or p.stem
     d.mkdir(parents=True, exist_ok=True)
-    copy(str(p), str(d / ("%s.%s%s" % (stem, datetime.now().strftime("%Y%m%d-%H%M%S"), p.suffix))))
-    for old in sorted(d.glob(stem + ".*" + p.suffix))[:-5]:
+    # Named by UTC time down to the microsecond, so a second backup in the same second cannot
+    # overwrite the first and a clock change cannot reorder them.
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+    copy(str(p), str(d / ("%s.%s%s" % (stem, stamp, p.suffix))))
+    # Backups named by an earlier version (local time, 20261116-120000) are all older than these.
+    for old in sorted(d.glob(stem + ".*" + p.suffix), key=lambda f: (f.name[len(stem) + 9:len(stem) + 10] == "T", f.name))[:-5]:
         try:
             old.unlink()
         except OSError:
@@ -231,7 +235,7 @@ def child_env():
 def cli_version(exe, default):
     try:
         out = subprocess.run([shutil.which(exe) or exe, "--version"], capture_output=True, text=True, timeout=20,
-                             stdin=subprocess.DEVNULL, env=child_env()).stdout
+                             encoding="utf-8", errors="replace", stdin=subprocess.DEVNULL, env=child_env()).stdout
         m = re.search(r"\d+\.\d+\.\d+", out)
         return m.group(0) if m else default
     except Exception:
@@ -283,6 +287,29 @@ class Adapter:
 
     def exists(self, path, sid):
         return os.path.isfile(str(path))
+
+
+def claude_project_dir(cwd):
+    """The folder name Claude Code keeps a project's sessions under, made the way Claude Code
+    makes it: every character other than an ASCII letter or digit becomes "-" (one per UTF-16
+    unit, so an emoji becomes "--"), and a name over 200 characters is cut and given a hash of
+    the full path."""
+    units = cwd.encode("utf-16-le")
+    codes = [units[i] | units[i + 1] << 8 for i in range(0, len(units), 2)]
+    name = "".join(chr(c) if c < 128 and chr(c).isalnum() else "-" for c in codes)
+    if len(name) <= 200:
+        return name
+    h = 0
+    for c in codes:
+        h = (h * 31 + c) & 0xFFFFFFFF
+    h = abs(h - (1 << 32) if h >> 31 else h)
+    digits = ""
+    while True:
+        h, r = divmod(h, 36)
+        digits = "0123456789abcdefghijklmnopqrstuvwxyz"[r] + digits
+        if not h:
+            break
+    return name[:200] + "-" + digits
 
 
 class Claude(Adapter):
@@ -423,7 +450,7 @@ class Claude(Adapter):
     def write(self, ev, cwd, title, src_label):
         """Create a new session holding these events."""
         sid = str(uuid.uuid4())
-        d = self.root / re.sub(r"[^a-zA-Z0-9]", "-", cwd)
+        d = self.root / claude_project_dir(cwd)
         d.mkdir(parents=True, exist_ok=True)
         first = {"k": "user", "text": note(src_label), "ts": (ev[0].get("ts") if ev else "") or iso_now()}
         lines = self._emit([first] + ev, sid, cwd, None)
@@ -839,7 +866,8 @@ class Agy(Adapter):
 
     @staticmethod
     def _uri(path):
-        return "file:///" + str(path).replace("\\", "/").lstrip("/")
+        from urllib.parse import quote
+        return "file:///" + quote(str(path).replace("\\", "/").lstrip("/"), safe="/:")
 
     @staticmethod
     def _from_uri(uri):
@@ -1487,8 +1515,11 @@ def folder(s):
 
 
 def char_width(ch):
-    """Terminal columns a character takes: wide characters (CJK, emoji) take two."""
-    return 0 if unicodedata.combining(ch) else 2 if unicodedata.east_asian_width(ch) in "WF" else 1
+    """Terminal columns a character takes: wide characters (CJK, emoji) take two, and marks that
+    sit on the character before them (accents, Thai and Indic vowel signs) take none."""
+    if unicodedata.combining(ch) or unicodedata.category(ch) in ("Mn", "Me") or "ᅠ" <= ch <= "ᇿ":
+        return 0
+    return 2 if unicodedata.east_asian_width(ch) in "WF" else 1
 
 
 def fit(s, cols, pad=False):
@@ -1753,9 +1784,15 @@ def targets_for(s):
     return [ADAPTERS[s.tool]] + [a for a in ADAPTERS.values() if a.name != s.tool and installed(a)]
 
 
+def fold(text):
+    """Text for comparing in search: same case (ß matches ss) and same accent encoding (a folder
+    name macOS stored as e + accent matches a typed é)."""
+    return unicodedata.normalize("NFC", text).casefold()
+
+
 def matches(sessions, query):
-    words = query.lower().split()
-    return [s for s in sessions if all(w in ("%s %s %s %s" % (s.tool, s.title, s.cwd, s.id)).lower() for w in words)]
+    words = fold(query).split()
+    return [s for s in sessions if all(w in fold("%s %s %s %s" % (s.tool, s.title, s.cwd, s.id)) for w in words)]
 
 
 HEADER = 3   # screen lines above the first row

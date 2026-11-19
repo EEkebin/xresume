@@ -305,6 +305,34 @@ mx, my, inner, items = xr.menu_layout([A["claude"], A["codex"], O], "claude", 6,
 check("menu below the row", my == 7 and items[0][1].endswith("(current)") and inner >= len(items[0][1]) + 3)
 check("menu above the row near the bottom", xr.menu_layout([A["claude"], A["codex"], O], "claude", 27, 100, 30)[1] == 22)
 
+# works the same whatever the user's language, folder names and clock
+check("claude folder names", xr.claude_project_dir("C:\\Users\\Jos\u00e9\\my proj") == "C--Users-Jos--my-proj"
+      and xr.claude_project_dir("/home/u/\U0001F600") == "-home-u---")
+# long names are cut at 200 and given Claude Code's hash; leading NULs add nothing to that hash, so
+# these carry the hashes of "polygenelubricants" (-2147483648) and "hello" (99162322) in base 36
+check("claude long folder names", xr.claude_project_dir("\0" * 190 + "polygenelubricants") == "-" * 190 + "polygenelu-zik0zk"
+      and xr.claude_project_dir("\0" * 200 + "hello") == "-" * 200 + "-1n1e4y"
+      and xr.claude_project_dir("a" * 200) == "a" * 200)
+check("marks that sit on a letter take no column", sum(map(xr.char_width, "\u0e01\u0e31\u0915\u0941e\u0301")) == 3
+      and xr.char_width("\u4e2d") == 2)
+folded = xr.Session("claude", "id", None, "/Users/me/Cafe\u0301", "Stra\u00dfe plan", 0)
+check("search ignores accent encoding and case folding", xr.matches([folded], "CAF\u00c9") and xr.matches([folded], "strasse"))
+odd_dir = os.path.join(work, "My Jos\u00e9 #1 %20")
+check("agy folder addresses round trip", xr.Agy._from_uri(xr.Agy._uri(odd_dir)) == odd_dir and " " not in xr.Agy._uri(odd_dir))
+bk = os.path.join(work, "bk.jsonl")
+bdir = os.path.join(work, "state", "backups")
+os.makedirs(bdir, exist_ok=True)
+for n in range(3):                                       # left by an earlier version, local time
+    open(os.path.join(bdir, "bk.2099010%d-120000.jsonl" % n), "w").close()
+for n in range(4):
+    with open(bk, "w") as f:
+        f.write("version %d\n" % n)
+    xr.backup(bk)
+kept = sorted(b for b in os.listdir(bdir) if b.startswith("bk."))
+check("backups in the same second are all kept, older names pruned first",
+      len(kept) == 5 and sum("T" in b for b in kept) == 4
+      and sorted(open(os.path.join(bdir, b)).read() for b in kept if "T" in b) == ["version %d\n" % n for n in range(4)], kept)
+
 print("RESULT: %d/%d" % (sum(ok), len(ok)))
 shutil.rmtree(work, ignore_errors=True)
 sys.exit(0 if all(ok) else 1)
