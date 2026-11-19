@@ -50,7 +50,7 @@ from pathlib import Path
 
 # The release date in UTC, as YEAR.MONTH.DAY; a second release on the same day adds .1, and so on.
 # The release workflow sets it when it publishes; there is no need to change it by hand.
-__version__ = "2026.11.16"
+__version__ = "2026.11.19"
 
 HOME = Path.home()
 UUID_RE = r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
