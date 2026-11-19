@@ -59,13 +59,6 @@ Python 3.8 or newer. Run the same command again to update.
 You can also download an executable yourself from the
 [latest release](https://github.com/EEkebin/xresume/releases/latest).
 
-With pipx or uv, on any platform with Python:
-
-```sh
-pipx install git+https://github.com/EEkebin/xresume
-uv tool install git+https://github.com/EEkebin/xresume
-```
-
 ---
 
 ## Usage
@@ -151,8 +144,7 @@ irm https://eekebin.github.io/xresume/uninstall.ps1 | iex
 ```
 
 These remove xresume and `~/.xresume`, where it keeps its links and backups. Sessions xresume
-created stay in each CLI's own history. Installed with pipx or uv instead? Run
-`pipx uninstall xresume` or `uv tool uninstall xresume`.
+created stay in each CLI's own history.
 
 ## Versions
 
