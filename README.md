@@ -13,28 +13,13 @@ messages, tool calls and tool results.
 
 ## Contents
 
-- [Features](#features)
 - [Install](#install)
+- [Uninstall](#uninstall)
+- [Features](#features)
 - [Usage](#usage)
 - [How it works](#how-it-works)
 - [Limits](#limits)
-- [Uninstall](#uninstall)
-- [Versions](#versions)
 - [License](#license)
-
----
-
-## Features
-
-- **One list for every CLI.** Newest first, colour-coded per tool, searchable by title, folder or id.
-- **Move a conversation between CLIs.** A real import into the other CLI's own session format, not a pasted summary.
-- **One session per CLI.** Move a conversation back later and only the new turns are added to the copy already there.
-- **Comes back when you quit.** Leave a CLI and the list reopens, ready for the next one.
-- **Preview before you open.** A side panel shows the last few messages of the selected conversation.
-- **Skip-permissions toggle.** One key launches the CLI with its no-prompts flags.
-- **Keyboard and mouse.** Arrows, `/` to search, a menu for choosing the CLI, click, double-click and wheel.
-- **Backups first.** Any session xresume adds to is copied to `~/.xresume/backups` beforehand.
-- **Nothing to set up.** A standalone executable per platform; the source is one Python file with no dependencies.
 
 ---
 
@@ -58,6 +43,39 @@ Python 3.8 or newer. Run the same command again to update.
 
 You can also download an executable yourself from the
 [latest release](https://github.com/EEkebin/xresume/releases/latest).
+
+---
+
+## Uninstall
+
+macOS and Linux:
+
+```sh
+rm -rf ~/.local/bin/xresume ~/.xresume
+```
+
+Windows (PowerShell):
+
+```powershell
+irm https://eekebin.github.io/xresume/uninstall.ps1 | iex
+```
+
+These remove xresume and `~/.xresume`, where it keeps its links and backups. Sessions xresume
+created stay in each CLI's own history.
+
+---
+
+## Features
+
+- **One list for every CLI.** Newest first, colour-coded per tool, searchable by title, folder or id.
+- **Move a conversation between CLIs.** A real import into the other CLI's own session format, not a pasted summary.
+- **One session per CLI.** Move a conversation back later and only the new turns are added to the copy already there.
+- **Comes back when you quit.** Leave a CLI and the list reopens, ready for the next one.
+- **Preview before you open.** A side panel shows the last few messages of the selected conversation.
+- **Skip-permissions toggle.** One key launches the CLI with its no-prompts flags.
+- **Keyboard and mouse.** Arrows, `/` to search, a menu for choosing the CLI, click, double-click and wheel.
+- **Backups first.** Any session xresume adds to is copied to `~/.xresume/backups` beforehand.
+- **Nothing to set up.** A standalone executable per platform; the source is one Python file with no dependencies.
 
 ---
 
@@ -98,19 +116,10 @@ Only CLIs found on your PATH are offered in the menu.
 
 ## How it works
 
-```
-pick a row ─▶ Enter              ─▶ the CLI's own resume, in the conversation's folder
-           ─▶ Right, choose a CLI ─▶ read the session into a neutral form
-                                  ─▶ already has a copy in the target CLI?
-                                       yes ─▶ back it up ─▶ add only the new turns
-                                       no  ─▶ write a new session in the target's format
-                                  ─▶ the target CLI's own resume
-```
-
-- **The model sees real history.** The target CLI loads the earlier turns as its own conversation.
-- **One row per conversation.** Copies in different CLIs are linked, and the list shows the most recently used one.
-- **OpenCode goes through its own import.** xresume never writes to OpenCode's database; it hands the conversation to `opencode session import`.
-- **Originals are safe.** Creating a copy never touches the source session. Before adding to an existing copy, xresume saves it and keeps the newest five backups per session.
+- **Enter** runs the CLI's own resume in the conversation's folder.
+- **Right** reads the conversation, writes it as a real session in the other CLI's own format and opens it there. The model gets the earlier messages, tool calls and results as its own history, and the original is left as it was.
+- **Moving it again** only adds the new turns to the copy that CLI already has, after backing it up. Linked copies show as one row.
+- **OpenCode is the exception:** xresume hands the conversation to `opencode session import` instead of writing to OpenCode's database.
 
 ---
 
@@ -128,27 +137,6 @@ pick a row ─▶ Enter              ─▶ the CLI's own resume, in the convers
 - **The executables are not code-signed.** If you download one in a browser, Windows or macOS may warn before running it. The install commands above do not trigger that.
 
 ---
-
-## Uninstall
-
-macOS and Linux:
-
-```sh
-rm -rf ~/.local/bin/xresume ~/.xresume
-```
-
-Windows (PowerShell):
-
-```powershell
-irm https://eekebin.github.io/xresume/uninstall.ps1 | iex
-```
-
-These remove xresume and `~/.xresume`, where it keeps its links and backups. Sessions xresume
-created stay in each CLI's own history.
-
-## Versions
-
-Versions are release dates in UTC, such as `2026.11.16`. Run `xresume --help` to see yours.
 
 ## License
 
