@@ -123,6 +123,14 @@
   </table>
   </div>
 
+  <h2>How it works</h2>
+  <ul class="points">
+    <li><strong>Enter</strong><span>Runs the CLI's own resume in the conversation's folder.</span></li>
+    <li><strong>Right</strong><span>Reads the conversation, writes it as a real session in the other CLI's own format and opens it there. The model gets the earlier messages, tool calls and results as its own history, and the original is left as it was.</span></li>
+    <li><strong>Moving it again</strong><span>Only the new turns are added to the copy that CLI already has, after a backup. Linked copies show as one row.</span></li>
+    <li><strong>OpenCode</strong><span>xresume hands the conversation to <code>opencode session import</code> instead of writing to OpenCode's database.</span></li>
+  </ul>
+
   <h2>Good to know</h2>
   <p>Antigravity's conversation format is undocumented, so support follows what agy 1.5 writes and an update may break it; Grok support likewise follows Grok CLI 1.0. OpenCode cannot add turns to an existing session, so a conversation moved back into it becomes a new OpenCode session. Hidden reasoning is not carried between CLIs, Codex redraws imported messages but not imported tool calls (the model still has them), and tool outputs longer than 6,000 characters are trimmed. Tested on Windows and Linux; macOS shares the Linux code but is untested by hand. The installers fetch a standalone executable for Windows x64, Linux x64 and arm64, and Apple Silicon Macs; other systems get the Python version, which needs Python 3.8 or newer.</p>
 

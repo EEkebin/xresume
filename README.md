@@ -116,19 +116,10 @@ Only CLIs found on your PATH are offered in the menu.
 
 ## How it works
 
-```
-pick a row ─▶ Enter              ─▶ the CLI's own resume, in the conversation's folder
-           ─▶ Right, choose a CLI ─▶ read the session into a neutral form
-                                  ─▶ already has a copy in the target CLI?
-                                       yes ─▶ back it up ─▶ add only the new turns
-                                       no  ─▶ write a new session in the target's format
-                                  ─▶ the target CLI's own resume
-```
-
-- **The model sees real history.** The target CLI loads the earlier turns as its own conversation.
-- **One row per conversation.** Copies in different CLIs are linked, and the list shows the most recently used one.
-- **OpenCode goes through its own import.** xresume never writes to OpenCode's database; it hands the conversation to `opencode session import`.
-- **Originals are safe.** Creating a copy never touches the source session. Before adding to an existing copy, xresume saves it and keeps the newest five backups per session.
+- **Enter** runs the CLI's own resume in the conversation's folder.
+- **Right** reads the conversation, writes it as a real session in the other CLI's own format and opens it there. The model gets the earlier messages, tool calls and results as its own history, and the original is left as it was.
+- **Moving it again** only adds the new turns to the copy that CLI already has, after backing it up. Linked copies show as one row.
+- **OpenCode is the exception:** xresume hands the conversation to `opencode session import` instead of writing to OpenCode's database.
 
 ---
 
