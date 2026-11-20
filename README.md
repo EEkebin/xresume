@@ -15,11 +15,10 @@ messages, tool calls and tool results.
 
 - [Features](#features)
 - [Install](#install)
+- [Uninstall](#uninstall)
 - [Usage](#usage)
 - [How it works](#how-it-works)
 - [Limits](#limits)
-- [Uninstall](#uninstall)
-- [Versions](#versions)
 - [License](#license)
 
 ---
@@ -58,6 +57,25 @@ Python 3.8 or newer. Run the same command again to update.
 
 You can also download an executable yourself from the
 [latest release](https://github.com/EEkebin/xresume/releases/latest).
+
+---
+
+## Uninstall
+
+macOS and Linux:
+
+```sh
+rm -rf ~/.local/bin/xresume ~/.xresume
+```
+
+Windows (PowerShell):
+
+```powershell
+irm https://eekebin.github.io/xresume/uninstall.ps1 | iex
+```
+
+These remove xresume and `~/.xresume`, where it keeps its links and backups. Sessions xresume
+created stay in each CLI's own history.
 
 ---
 
@@ -128,27 +146,6 @@ pick a row ─▶ Enter              ─▶ the CLI's own resume, in the convers
 - **The executables are not code-signed.** If you download one in a browser, Windows or macOS may warn before running it. The install commands above do not trigger that.
 
 ---
-
-## Uninstall
-
-macOS and Linux:
-
-```sh
-rm -rf ~/.local/bin/xresume ~/.xresume
-```
-
-Windows (PowerShell):
-
-```powershell
-irm https://eekebin.github.io/xresume/uninstall.ps1 | iex
-```
-
-These remove xresume and `~/.xresume`, where it keeps its links and backups. Sessions xresume
-created stay in each CLI's own history.
-
-## Versions
-
-Versions are release dates in UTC, such as `2026.11.16`. Run `xresume --help` to see yours.
 
 ## License
 
