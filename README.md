@@ -13,27 +13,13 @@ messages, tool calls and tool results.
 
 ## Contents
 
-- [Features](#features)
 - [Install](#install)
 - [Uninstall](#uninstall)
+- [Features](#features)
 - [Usage](#usage)
 - [How it works](#how-it-works)
 - [Limits](#limits)
 - [License](#license)
-
----
-
-## Features
-
-- **One list for every CLI.** Newest first, colour-coded per tool, searchable by title, folder or id.
-- **Move a conversation between CLIs.** A real import into the other CLI's own session format, not a pasted summary.
-- **One session per CLI.** Move a conversation back later and only the new turns are added to the copy already there.
-- **Comes back when you quit.** Leave a CLI and the list reopens, ready for the next one.
-- **Preview before you open.** A side panel shows the last few messages of the selected conversation.
-- **Skip-permissions toggle.** One key launches the CLI with its no-prompts flags.
-- **Keyboard and mouse.** Arrows, `/` to search, a menu for choosing the CLI, click, double-click and wheel.
-- **Backups first.** Any session xresume adds to is copied to `~/.xresume/backups` beforehand.
-- **Nothing to set up.** A standalone executable per platform; the source is one Python file with no dependencies.
 
 ---
 
@@ -76,6 +62,20 @@ irm https://eekebin.github.io/xresume/uninstall.ps1 | iex
 
 These remove xresume and `~/.xresume`, where it keeps its links and backups. Sessions xresume
 created stay in each CLI's own history.
+
+---
+
+## Features
+
+- **One list for every CLI.** Newest first, colour-coded per tool, searchable by title, folder or id.
+- **Move a conversation between CLIs.** A real import into the other CLI's own session format, not a pasted summary.
+- **One session per CLI.** Move a conversation back later and only the new turns are added to the copy already there.
+- **Comes back when you quit.** Leave a CLI and the list reopens, ready for the next one.
+- **Preview before you open.** A side panel shows the last few messages of the selected conversation.
+- **Skip-permissions toggle.** One key launches the CLI with its no-prompts flags.
+- **Keyboard and mouse.** Arrows, `/` to search, a menu for choosing the CLI, click, double-click and wheel.
+- **Backups first.** Any session xresume adds to is copied to `~/.xresume/backups` beforehand.
+- **Nothing to set up.** A standalone executable per platform; the source is one Python file with no dependencies.
 
 ---
 
